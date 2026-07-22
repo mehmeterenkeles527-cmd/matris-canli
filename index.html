@@ -23,27 +23,25 @@
 </head>
 <body>
   <h3 style="color: #ff3333; letter-spacing: 1px;">ESP8266 PİKSEL SİMÜLASYONU</h3>
-  <!-- 32 Sütun x 8 Satır Matris -->
   <canvas id="matrix" width="640" height="160"></canvas>
   <div class="info">
-    4x MAX7219 Modülü Bağlı (32x8 Piksel)<br>
+    4x MAX7219 Modülü (32x8 Piksel)<br>
     Akış Hızı: <span id="hizGosterge">35</span> ms
   </div>
 
   <script>
-    // Linkten gelen yazı ve hızı alıyoruz
     const urlParams = new URLSearchParams(window.location.search);
-    const yazi = (urlParams.get('yazi') || "SISTEM HAZIR").toUpperCase();
+    const yazi = urlParams.get('yazi') || "SISTEM HAZIR";
     const hiz = parseInt(urlParams.get('hiz')) || 35;
     document.getElementById('hizGosterge').innerText = hiz;
 
     const canvas = document.getElementById('matrix');
     const ctx = canvas.getContext('2d');
     const cols = 32; const rows = 8;
-    const dotSize = 20; // 640/32 = 20px her piksel
+    const dotSize = 20; 
     const radius = 7;
 
-    // MD_Parola Kütüphanesinin Birebir Piksel Haritası (Donanım Fontu)
+    // Tam ASCII Font Haritası (Büyük/Küçük Harf + Rakamlar)
     const font = {
       'A':[0x7e,0x11,0x11,0x7e], 'B':[0x7f,0x49,0x49,0x36], 'C':[0x3e,0x41,0x41,0x22], 'D':[0x7f,0x41,0x41,0x3e],
       'E':[0x7f,0x49,0x49,0x41], 'F':[0x7f,0x09,0x09,0x01], 'G':[0x3e,0x41,0x49,0x3a], 'H':[0x7f,0x08,0x08,0x7f],
@@ -51,14 +49,22 @@
       'M':[0x7f,0x02,0x0c,0x02,0x7f], 'N':[0x7f,0x04,0x08,0x10,0x7f], 'O':[0x3e,0x41,0x41,0x3e], 'P':[0x7f,0x09,0x09,0x06],
       'Q':[0x3e,0x41,0x51,0x21,0x5e], 'R':[0x7f,0x09,0x19,0x66], 'S':[0x26,0x49,0x49,0x32], 'T':[0x01,0x01,0x7f,0x01,0x01],
       'U':[0x3f,0x40,0x40,0x3f], 'V':[0x1f,0x20,0x40,0x20,0x1f], 'W':[0x3f,0x40,0x38,0x40,0x3f], 'X':[0x63,0x14,0x08,0x14,0x63],
-      'Y':[0x03,0x04,0x78,0x04,0x03], 'Z':[0x61,0x51,0x49,0x45,0x43], ' ':[0x00,0x00],
+      'Y':[0x03,0x04,0x78,0x04,0x03], 'Z':[0x61,0x51,0x49,0x45,0x43],
+      'a':[0x20,0x54,0x54,0x78], 'b':[0x7f,0x48,0x44,0x38], 'c':[0x38,0x44,0x44,0x20], 'd':[0x38,0x44,0x48,0x7f],
+      'e':[0x38,0x54,0x54,0x18], 'f':[0x08,0x7e,0x09,0x02], 'g':[0x0c,0x52,0x52,0x3e], 'h':[0x7f,0x08,0x04,0x78],
+      'i':[0x00,0x44,0x7d,0x40], 'j':[0x20,0x40,0x44,0x3d], 'k':[0x7f,0x10,0x28,0x44], 'l':[0x00,0x41,0x7f,0x40],
+      'm':[0x7c,0x04,0x18,0x04,0x78], 'n':[0x7c,0x08,0x04,0x78], 'o':[0x38,0x44,0x44,0x38], 'p':[0x84,0xfe,0x24,0x18],
+      'q':[0x18,0x24,0xfe,0x84], 'r':[0x7c,0x08,0x04,0x08], 's':[0x48,0x54,0x54,0x24], 't':[0x04,0x3e,0x44,0x24],
+      'u':[0x3c,0x40,0x20,0x7c], 'v':[0x1c,0x20,0x40,0x20,0x1c], 'w':[0x3c,0x40,0x30,0x40,0x3c], 'x':[0x44,0x28,0x10,0x28,0x44],
+      'y':[0x0c,0x50,0x50,0x3c], 'z':[0x44,0x64,0x54,0x4c], ' ':[0x00,0x00,0x00],
       '0':[0x3e,0x51,0x49,0x45,0x3e],'1':[0x00,0x42,0x7f,0x40,0x00],'2':[0x42,0x61,0x51,0x49,0x46],'3':[0x21,0x41,0x45,0x4b,0x31],
       '4':[0x18,0x14,0x12,0x7f,0x10],'5':[0x27,0x45,0x45,0x45,0x39],'6':[0x3c,0x4a,0x49,0x49,0x30],'7':[0x01,0x71,0x09,0x05,0x03],
       '8':[0x36,0x49,0x49,0x49,0x36],'9':[0x06,0x49,0x49,0x29,0x1e]
     };
 
-    // Yazıyı piksel dizisine çevir
     let pixelHaritasi = [];
+    
+    // Metni piksellere dönüştür
     for (let i = 0; i < yazi.length; i++) {
       let charArray = font[yazi[i]] || font[' '];
       for (let col = 0; col < charArray.length; col++) {
@@ -68,7 +74,13 @@
         }
         pixelHaritasi.push(bitSutun);
       }
-      pixelHaritasi.push([0,0,0,0,0,0,0,0]); // Harf arası boşluk
+      pixelHaritasi.push([0,0,0,0,0,0,0,0]); // Harf arası 1px boşluk
+    }
+
+    // --- GERÇEK MATRİSTEKİ BEKLEME (DELAY) BOŞLUĞU ---
+    // Cümle bittikten sonra ekranın tamamen temiz akması için 32 boş sütun ekliyoruz
+    for (let b = 0; b < cols; b++) {
+      pixelHaritasi.push([0,0,0,0,0,0,0,0]);
     }
 
     let kaydirma = 0;
@@ -76,30 +88,30 @@
     function matrisiCiz() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // 4 Modülü birbirinden ayıran donanım çizgileri (8x8 bloklar)
+      // 4 Modülü ayıran dik çizgiler (8x8 ayrımı)
       ctx.strokeStyle = '#222'; ctx.lineWidth = 2;
       for(let i=1; i<4; i++) {
          ctx.beginPath(); ctx.moveTo(i * 8 * dotSize, 0); ctx.lineTo(i * 8 * dotSize, canvas.height); ctx.stroke();
       }
 
-      // Pikselleri Çiz (LED'leri yak)
+      // Pikselleri düzgün yönle çiz (Aynalama ve Ters Düz Etme Düzeltildi!)
       for (let x = 0; x < cols; x++) {
         for (let y = 0; y < rows; y++) {
-          let haritaX = x + kaydirma - cols; // Sağdan sola kayma mantığı
+          let haritaX = kaydirma + x - cols;
           let isikAcik = false;
           
-          if(haritaX >= 0 && haritaX < pixelHaritasi.length) {
-            isikAcik = pixelHaritasi[haritaX][7 - y]; // Matris ters çevirmesi
+          if (haritaX >= 0 && haritaX < pixelHaritasi.length) {
+            isikAcik = pixelHaritasi[haritaX][y]; // Doğru yön oryantasyonu
           }
 
           ctx.beginPath();
           ctx.arc(x * dotSize + dotSize/2, y * dotSize + dotSize/2, radius, 0, Math.PI * 2);
           
           if (isikAcik) {
-            ctx.fillStyle = '#ff0000'; // Yanan kırmızı LED
-            ctx.shadowBlur = 12; ctx.shadowColor = '#ff0000'; // LED Parıltısı
+            ctx.fillStyle = '#ff0000'; 
+            ctx.shadowBlur = 10; ctx.shadowColor = '#ff0000';
           } else {
-            ctx.fillStyle = '#110000'; // Sönük LED
+            ctx.fillStyle = '#110000'; 
             ctx.shadowBlur = 0;
           }
           ctx.fill();
@@ -107,11 +119,10 @@
       }
 
       kaydirma++;
-      if (kaydirma > pixelHaritasi.length + cols) {
+      if (kaydirma >= pixelHaritasi.length + cols) {
         kaydirma = 0; // Başa sar
       }
 
-      // Akış hızını koda senkronize ettik
       setTimeout(matrisiCiz, hiz);
     }
 
