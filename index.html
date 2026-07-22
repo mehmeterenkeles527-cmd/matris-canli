@@ -3,55 +3,119 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Matris Canlı Önizleme</title>
+  <title>32x8 LED Matris Simülatörü</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     body {
-      background-color: #0f0f0f;
-      color: #fff;
-      font-family: monospace;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
+      background-color: #050505; color: #fff; font-family: monospace;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      height: 100vh; margin: 0; overflow: hidden;
     }
-    .display-box {
-      border: 3px solid #333;
-      padding: 20px;
-      border-radius: 12px;
-      background: #000;
-      box-shadow: 0 0 20px rgba(255, 0, 0, 0.2);
+    canvas {
+      background-color: #0a0000;
+      border: 4px solid #222;
+      border-radius: 8px;
+      box-shadow: 0 0 25px rgba(255, 0, 0, 0.15);
+      max-width: 95vw;
     }
-    .led-text {
-      font-size: 28px;
-      color: #ff0000;
-      letter-spacing: 4px;
-      text-shadow: 0 0 8px #ff0000, 0 0 15px #ff0000;
-      white-space: nowrap;
-      overflow: hidden;
-      width: 250px;
-      display: inline-block;
-    }
-    marquee {
-      width: 100%;
-    }
+    .info { margin-top: 15px; color: #666; font-size: 13px; text-align: center; }
   </style>
 </head>
 <body>
-  <h2>📺 CANLI MATRİS ÖNİZLEME</h2>
-  <div class="display-box">
-    <div class="led-text">
-      <marquee id="kayanYazi" scrollamount="6">SISTEM HAZIR</marquee>
-    </div>
+  <h3 style="color: #ff3333; letter-spacing: 1px;">ESP8266 PİKSEL SİMÜLASYONU</h3>
+  <!-- 32 Sütun x 8 Satır Matris -->
+  <canvas id="matrix" width="640" height="160"></canvas>
+  <div class="info">
+    4x MAX7219 Modülü Bağlı (32x8 Piksel)<br>
+    Akış Hızı: <span id="hizGosterge">35</span> ms
   </div>
-  <p style="color: #666; font-size: 12px; margin-top: 20px;">ESP8266 LED Matris Senkronize Simülasyonu</p>
 
   <script>
+    // Linkten gelen yazı ve hızı alıyoruz
     const urlParams = new URLSearchParams(window.location.search);
-    const yazi = urlParams.get('yazi') || "SISTEM HAZIR";
-    document.getElementById('kayanYazi').innerText = decodeURIComponent(yazi);
+    const yazi = (urlParams.get('yazi') || "SISTEM HAZIR").toUpperCase();
+    const hiz = parseInt(urlParams.get('hiz')) || 35;
+    document.getElementById('hizGosterge').innerText = hiz;
+
+    const canvas = document.getElementById('matrix');
+    const ctx = canvas.getContext('2d');
+    const cols = 32; const rows = 8;
+    const dotSize = 20; // 640/32 = 20px her piksel
+    const radius = 7;
+
+    // MD_Parola Kütüphanesinin Birebir Piksel Haritası (Donanım Fontu)
+    const font = {
+      'A':[0x7e,0x11,0x11,0x7e], 'B':[0x7f,0x49,0x49,0x36], 'C':[0x3e,0x41,0x41,0x22], 'D':[0x7f,0x41,0x41,0x3e],
+      'E':[0x7f,0x49,0x49,0x41], 'F':[0x7f,0x09,0x09,0x01], 'G':[0x3e,0x41,0x49,0x3a], 'H':[0x7f,0x08,0x08,0x7f],
+      'I':[0x00,0x41,0x7f,0x41], 'J':[0x20,0x40,0x41,0x3f], 'K':[0x7f,0x08,0x14,0x63], 'L':[0x7f,0x40,0x40,0x40],
+      'M':[0x7f,0x02,0x0c,0x02,0x7f], 'N':[0x7f,0x04,0x08,0x10,0x7f], 'O':[0x3e,0x41,0x41,0x3e], 'P':[0x7f,0x09,0x09,0x06],
+      'Q':[0x3e,0x41,0x51,0x21,0x5e], 'R':[0x7f,0x09,0x19,0x66], 'S':[0x26,0x49,0x49,0x32], 'T':[0x01,0x01,0x7f,0x01,0x01],
+      'U':[0x3f,0x40,0x40,0x3f], 'V':[0x1f,0x20,0x40,0x20,0x1f], 'W':[0x3f,0x40,0x38,0x40,0x3f], 'X':[0x63,0x14,0x08,0x14,0x63],
+      'Y':[0x03,0x04,0x78,0x04,0x03], 'Z':[0x61,0x51,0x49,0x45,0x43], ' ':[0x00,0x00],
+      '0':[0x3e,0x51,0x49,0x45,0x3e],'1':[0x00,0x42,0x7f,0x40,0x00],'2':[0x42,0x61,0x51,0x49,0x46],'3':[0x21,0x41,0x45,0x4b,0x31],
+      '4':[0x18,0x14,0x12,0x7f,0x10],'5':[0x27,0x45,0x45,0x45,0x39],'6':[0x3c,0x4a,0x49,0x49,0x30],'7':[0x01,0x71,0x09,0x05,0x03],
+      '8':[0x36,0x49,0x49,0x49,0x36],'9':[0x06,0x49,0x49,0x29,0x1e]
+    };
+
+    // Yazıyı piksel dizisine çevir
+    let pixelHaritasi = [];
+    for (let i = 0; i < yazi.length; i++) {
+      let charArray = font[yazi[i]] || font[' '];
+      for (let col = 0; col < charArray.length; col++) {
+        let bitSutun = [];
+        for (let bit = 0; bit < 8; bit++) {
+          bitSutun.push((charArray[col] >> bit) & 1);
+        }
+        pixelHaritasi.push(bitSutun);
+      }
+      pixelHaritasi.push([0,0,0,0,0,0,0,0]); // Harf arası boşluk
+    }
+
+    let kaydirma = 0;
+
+    function matrisiCiz() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // 4 Modülü birbirinden ayıran donanım çizgileri (8x8 bloklar)
+      ctx.strokeStyle = '#222'; ctx.lineWidth = 2;
+      for(let i=1; i<4; i++) {
+         ctx.beginPath(); ctx.moveTo(i * 8 * dotSize, 0); ctx.lineTo(i * 8 * dotSize, canvas.height); ctx.stroke();
+      }
+
+      // Pikselleri Çiz (LED'leri yak)
+      for (let x = 0; x < cols; x++) {
+        for (let y = 0; y < rows; y++) {
+          let haritaX = x + kaydirma - cols; // Sağdan sola kayma mantığı
+          let isikAcik = false;
+          
+          if(haritaX >= 0 && haritaX < pixelHaritasi.length) {
+            isikAcik = pixelHaritasi[haritaX][7 - y]; // Matris ters çevirmesi
+          }
+
+          ctx.beginPath();
+          ctx.arc(x * dotSize + dotSize/2, y * dotSize + dotSize/2, radius, 0, Math.PI * 2);
+          
+          if (isikAcik) {
+            ctx.fillStyle = '#ff0000'; // Yanan kırmızı LED
+            ctx.shadowBlur = 12; ctx.shadowColor = '#ff0000'; // LED Parıltısı
+          } else {
+            ctx.fillStyle = '#110000'; // Sönük LED
+            ctx.shadowBlur = 0;
+          }
+          ctx.fill();
+        }
+      }
+
+      kaydirma++;
+      if (kaydirma > pixelHaritasi.length + cols) {
+        kaydirma = 0; // Başa sar
+      }
+
+      // Akış hızını koda senkronize ettik
+      setTimeout(matrisiCiz, hiz);
+    }
+
+    matrisiCiz();
   </script>
 </body>
 </html>
