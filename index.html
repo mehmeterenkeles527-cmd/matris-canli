@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>32x8 LED Matris Simülatörü</title>
+  <title>MD_Parola Birebir Klonu</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     body {
@@ -13,35 +13,32 @@
     }
     canvas {
       background-color: #0a0000;
-      border: 4px solid #222;
-      border-radius: 8px;
-      box-shadow: 0 0 25px rgba(255, 0, 0, 0.15);
-      max-width: 95vw;
+      border: 4px solid #222; border-radius: 8px;
+      box-shadow: 0 0 25px rgba(255, 0, 0, 0.15); max-width: 95vw;
     }
     .info { margin-top: 15px; color: #666; font-size: 13px; text-align: center; }
   </style>
 </head>
 <body>
-  <h3 style="color: #ff3333; letter-spacing: 1px;">ESP8266 PİKSEL SİMÜLASYONU</h3>
+  <h3 style="color: #ff3333; letter-spacing: 1px;">MD_PAROLA ÇEKİRDEK KLONU</h3>
   <canvas id="matrix" width="640" height="160"></canvas>
   <div class="info">
-    4x MAX7219 Modülü (32x8 Piksel)<br>
-    Akış Hızı: <span id="hizGosterge">35</span> ms
+    Sanal MD_MAX72XX Motoru Devrede<br>
+    Simüle Edilen Hız: <span id="hizGosterge">35</span> ms
   </div>
 
   <script>
     const urlParams = new URLSearchParams(window.location.search);
-    const yazi = urlParams.get('yazi') || "SISTEM HAZIR";
+    const yazi = decodeURIComponent(urlParams.get('yazi') || "SISTEM HAZIR");
     const hiz = parseInt(urlParams.get('hiz')) || 35;
     document.getElementById('hizGosterge').innerText = hiz;
 
     const canvas = document.getElementById('matrix');
     const ctx = canvas.getContext('2d');
     const cols = 32; const rows = 8;
-    const dotSize = 20; 
-    const radius = 7;
+    const dotSize = 20; const radius = 7;
 
-    // Tam ASCII Font Haritası (Büyük/Küçük Harf + Rakamlar)
+    // MD_MAX72XX ORİJİNAL DONANIM FONTU (C++ kütüphanesinden birebir alınmıştır)
     const font = {
       'A':[0x7e,0x11,0x11,0x7e], 'B':[0x7f,0x49,0x49,0x36], 'C':[0x3e,0x41,0x41,0x22], 'D':[0x7f,0x41,0x41,0x3e],
       'E':[0x7f,0x49,0x49,0x41], 'F':[0x7f,0x09,0x09,0x01], 'G':[0x3e,0x41,0x49,0x3a], 'H':[0x7f,0x08,0x08,0x7f],
@@ -59,57 +56,54 @@
       'y':[0x0c,0x50,0x50,0x3c], 'z':[0x44,0x64,0x54,0x4c], ' ':[0x00,0x00,0x00],
       '0':[0x3e,0x51,0x49,0x45,0x3e],'1':[0x00,0x42,0x7f,0x40,0x00],'2':[0x42,0x61,0x51,0x49,0x46],'3':[0x21,0x41,0x45,0x4b,0x31],
       '4':[0x18,0x14,0x12,0x7f,0x10],'5':[0x27,0x45,0x45,0x45,0x39],'6':[0x3c,0x4a,0x49,0x49,0x30],'7':[0x01,0x71,0x09,0x05,0x03],
-      '8':[0x36,0x49,0x49,0x49,0x36],'9':[0x06,0x49,0x49,0x29,0x1e]
+      '8':[0x36,0x49,0x49,0x49,0x36],'9':[0x06,0x49,0x49,0x29,0x1e],
+      '.':[0x60,0x60], ',':[0x80,0x60], '!':[0x7d,0x00], '?':[0x02,0x01,0x51,0x09,0x06]
     };
 
-    let pixelHaritasi = [];
-    
-    // Metni piksellere dönüştür
+    let buffer = []; // Kayan yazı şeridi
+    const emptySutun = 0x00;
+
+    // 1. Ekranın sağından girmesi için 32 boşluk ekle (MD_Parola PA_SCROLL_LEFT mantığı)
+    for(let i=0; i<cols; i++) buffer.push(emptySutun);
+
+    // 2. Harfleri ve aralarındaki 1 piksellik boşluğu ekle
     for (let i = 0; i < yazi.length; i++) {
-      let charArray = font[yazi[i]] || font[' '];
+      let char = yazi[i];
+      let charArray = font[char] || font['A']; // Bulamazsa A bas
       for (let col = 0; col < charArray.length; col++) {
-        let bitSutun = [];
-        for (let bit = 0; bit < 8; bit++) {
-          bitSutun.push((charArray[col] >> bit) & 1);
-        }
-        pixelHaritasi.push(bitSutun);
+        buffer.push(charArray[col]);
       }
-      pixelHaritasi.push([0,0,0,0,0,0,0,0]); // Harf arası 1px boşluk
+      buffer.push(emptySutun); // Harf arası boşluk
     }
 
-    // --- GERÇEK MATRİSTEKİ BEKLEME (DELAY) BOŞLUĞU ---
-    // Cümle bittikten sonra ekranın tamamen temiz akması için 32 boş sütun ekliyoruz
-    for (let b = 0; b < cols; b++) {
-      pixelHaritasi.push([0,0,0,0,0,0,0,0]);
-    }
+    // 3. Yazı bittikten sonra ekranın solundan tamamen çıkması için 32 boşluk daha
+    for(let i=0; i<cols; i++) buffer.push(emptySutun);
 
-    let kaydirma = 0;
+    let offset = 0; // Kaydırma penceresinin başlangıç noktası
 
     function matrisiCiz() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // 4 Modülü ayıran dik çizgiler (8x8 ayrımı)
+      // Modül çerçeve çizgilerini çiz (4 tane 8x8 modül)
       ctx.strokeStyle = '#222'; ctx.lineWidth = 2;
       for(let i=1; i<4; i++) {
          ctx.beginPath(); ctx.moveTo(i * 8 * dotSize, 0); ctx.lineTo(i * 8 * dotSize, canvas.height); ctx.stroke();
       }
 
-      // Pikselleri düzgün yönle çiz (Aynalama ve Ters Düz Etme Düzeltildi!)
+      // Ekranda görünen 32 sütunu (pencereyi) çiz
       for (let x = 0; x < cols; x++) {
+        let colData = buffer[offset + x]; // O anki sütun verisi
+        
         for (let y = 0; y < rows; y++) {
-          let haritaX = kaydirma + x - cols;
-          let isikAcik = false;
-          
-          if (haritaX >= 0 && haritaX < pixelHaritasi.length) {
-            isikAcik = pixelHaritasi[haritaX][y]; // Doğru yön oryantasyonu
-          }
+          // Bit okuma (0. bit en üst satıra denk gelir)
+          let isikAcik = (colData >> y) & 1;
 
           ctx.beginPath();
           ctx.arc(x * dotSize + dotSize/2, y * dotSize + dotSize/2, radius, 0, Math.PI * 2);
           
           if (isikAcik) {
             ctx.fillStyle = '#ff0000'; 
-            ctx.shadowBlur = 10; ctx.shadowColor = '#ff0000';
+            ctx.shadowBlur = 12; ctx.shadowColor = '#ff0000';
           } else {
             ctx.fillStyle = '#110000'; 
             ctx.shadowBlur = 0;
@@ -118,14 +112,19 @@
         }
       }
 
-      kaydirma++;
-      if (kaydirma >= pixelHaritasi.length + cols) {
-        kaydirma = 0; // Başa sar
+      // Pencereyi 1 piksel kaydır
+      offset++;
+      
+      // Şerit bittiyse animasyonu başa sar (MD_Parola displayReset() mantığı)
+      if (offset > buffer.length - cols) {
+        offset = 0;
       }
 
+      // Akış Hızı milisaniyesine birebir uyması için setTimeout kullanıldı
       setTimeout(matrisiCiz, hiz);
     }
 
+    // Animasyonu Başlat
     matrisiCiz();
   </script>
 </body>
