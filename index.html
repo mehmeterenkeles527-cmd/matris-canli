@@ -1,0 +1,180 @@
+#include <ESP8266WiFi.h>
+#include <WiFiClientSecure.h>
+#include <UniversalTelegramBot.h>
+#include <MD_Parola.h>
+#include <MD_MAX72xx.h>
+#include <SPI.h>
+
+// --- Wi-Fi ve Bot Ayarları ---
+const char* ssid = "FiberHGW_ZTX45R";
+const char* password = "zAesbX3zURFk";
+#define BOTtoken "8773735257:AAFgZN1JtiMIY4pbeSn_RZLW40w2wLcbnVc"
+
+// --- GitHub Pages Linkin (Kendi GitHub Linkini Buraya Yaz) ---
+String WEB_APP_URL = "https://KULLANICI_ADIN.github.io/matris-sim/?yazi=";
+
+WiFiClientSecure client;
+UniversalTelegramBot bot(BOTtoken, client);
+
+// --- Matris Ayarları ---
+#define HARDWARE_TYPE MD_MAX72XX::FC16_HW
+#define MAX_DEVICES 4
+
+#define CLK_PIN   D5
+#define DATA_PIN  D7
+#define CS_PIN    D8
+
+MD_Parola myDisplay = MD_Parola(HARDWARE_TYPE, DATA_PIN, CLK_PIN, CS_PIN, MAX_DEVICES);
+
+// Değişkenler
+String mevcutYazi = "SISTEM HAZIR";
+int akisHizi = 35;
+int parlaklik = 8;
+int sonMesajId = 0;
+
+// URL Encoding (Telegram Butonuna Metin Gönderirken Boşluk Karakteri Hatasını Önler)
+String urlEncode(String str) {
+  String encodedString = "";
+  char c;
+  char code0, code1;
+  for (size_t i = 0; i < str.length(); i++) {
+    c = str[i];
+    if (c == ' ') {
+      encodedString += "%20";
+    } else if (isalnum(c)) {
+      encodedString += c;
+    } else {
+      code0 = (c >> 4) & 0xF;
+      code1 = c & 0xF;
+      encodedString += '%';
+      encodedString += (char)(code0 > 9 ? code0 - 10 + 'A' : code0 + '0');
+      encodedString += (char)(code1 > 9 ? code1 - 10 + 'A' : code1 + '0');
+    }
+  }
+  return encodedString;
+}
+
+// Web App Butonlu Kontrol Paneli
+void kontrolPaneliGonder(String chat_id) {
+  String mesaj = "🎛 *Matris Kontrol Paneli*\n\n";
+  mesaj += "• Ekrana basmak için metin yaz.\n";
+  mesaj += "• `/hiz 20`, `/parlaklik 10` komutlarını kullanabilirsin.";
+
+  String dinamikUrl = WEB_APP_URL + urlEncode(mevcutYazi);
+
+  String keyboardJson = "[";
+  // Telegram Web App Butonu
+  keyboardJson += "[{\"text\":\"👁️ Ekranda Ne Akıyor? (Canlı İzle)\",\"web_app\":{\"url\":\"" + dinamikUrl + "\"}}],";
+  keyboardJson += "[{\"text\":\"⏪ Yavaşlat\",\"callback_data\":\"hiz_yavas\"},{\"text\":\"⏩ Hızlandır\",\"callback_data\":\"hiz_hizli\"}],";
+  keyboardJson += "[{\"text\":\"🔅 Parlaklık Kıs\",\"callback_data\":\"par_kis\"},{\"text\":\"🔆 Parlaklık Aç\",\"callback_data\":\"par_ac\"}],";
+  keyboardJson += "[{\"text\":\"ℹ️ Durum\",\"callback_data\":\"durum\"}]";
+  keyboardJson += "]";
+
+  bot.sendMessageWithInlineKeyboard(chat_id, mesaj, "Markdown", keyboardJson);
+}
+
+void setup() {
+  Serial.begin(115200);
+  
+  myDisplay.begin();
+  myDisplay.setIntensity(parlaklik);
+  myDisplay.displayClear();
+  myDisplay.displayText(mevcutYazi.c_str(), PA_LEFT, akisHizi, 0, PA_SCROLL_LEFT, PA_SCROLL_LEFT);
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  
+  client.setInsecure();
+  client.setBufferSizes(512, 512);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWi-Fi Bağlandı!");
+}
+
+void yeniMesajlariKontrolEt() {
+  int numNewMessages = bot.getUpdates(sonMesajId);
+  
+  for (int i = 0; i < numNewMessages; i++) {
+    String chat_id = String(bot.messages[i].chat_id);
+    String text = bot.messages[i].text;
+    String type = bot.messages[i].type;
+
+    if (type == "callback_query") {
+      if (text == "hiz_hizli") {
+        akisHizi -= 10;
+        if (akisHizi < 10) akisHizi = 10;
+        myDisplay.setSpeed(akisHizi);
+        bot.sendMessage(chat_id, "⏩ Hızlandırıldı!", "");
+      }
+      else if (text == "hiz_yavas") {
+        akisHizi += 10;
+        if (akisHizi > 150) akisHizi = 150;
+        myDisplay.setSpeed(akisHizi);
+        bot.sendMessage(chat_id, "⏪ Yavaşlatıldı!", "");
+      }
+      else if (text == "par_kis") {
+        parlaklik -= 1;
+        if (parlaklik < 0) parlaklik = 0;
+        myDisplay.setIntensity(parlaklik);
+        bot.sendMessage(chat_id, "🔅 Parlaklık kısıldı!", "");
+      }
+      else if (text == "par_ac") {
+        parlaklik += 1;
+        if (parlaklik > 15) parlaklik = 15;
+        myDisplay.setIntensity(parlaklik);
+        bot.sendMessage(chat_id, "🔆 Parlaklık açıldı!", "");
+      }
+      else if (text == "durum") {
+        String durum = "📊 *Güncel Sistem Durumu*\n\n";
+        durum += "📝 *Aktif Metin:* " + mevcutYazi + "\n";
+        durum += "⚡ *Akış Hızı:* " + String(akisHizi) + " ms\n";
+        durum += "💡 *Parlaklık:* " + String(parlaklik) + "/15\n";
+        bot.sendMessage(chat_id, durum, "Markdown");
+      }
+    } 
+    else {
+      if (text == "/start" || text == "/menu") {
+        kontrolPaneliGonder(chat_id);
+      } 
+      else if (text.startsWith("/hiz ")) {
+        int yeniHiz = text.substring(5).toInt();
+        if (yeniHiz > 0) {
+          akisHizi = yeniHiz;
+          myDisplay.setSpeed(akisHizi);
+          bot.sendMessage(chat_id, "⚡ Hız güncellendi!", "");
+        }
+      }
+      else if (text.startsWith("/parlaklik ")) {
+        int yeniParlaklik = text.substring(11).toInt();
+        if (yeniParlaklik >= 0 && yeniParlaklik <= 15) {
+          parlaklik = yeniParlaklik;
+          myDisplay.setIntensity(parlaklik);
+          bot.sendMessage(chat_id, "💡 Parlaklık güncellendi!", "");
+        }
+      }
+      else if (text == "/durum") {
+        String durum = "📊 *Aktif Metin:* " + mevcutYazi + "\n⚡ *Hız:* " + String(akisHizi) + "ms";
+        bot.sendMessage(chat_id, durum, "");
+      }
+      else {
+        mevcutYazi = text;
+        myDisplay.displayClear();
+        myDisplay.displayText(mevcutYazi.c_str(), PA_LEFT, akisHizi, 0, PA_SCROLL_LEFT, PA_SCROLL_LEFT);
+
+        bot.sendMessage(chat_id, "✅ Yazı Güncellendi!", "");
+        kontrolPaneliGonder(chat_id);
+      }
+    }
+    sonMesajId = bot.messages[i].update_id + 1;
+  }
+}
+
+void loop() {
+  if (myDisplay.displayAnimate()) {
+    yeniMesajlariKontrolEt();
+    myDisplay.displayReset();
+  }
+}
